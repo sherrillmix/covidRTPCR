@@ -28,15 +28,15 @@ make_analysis_data <- function(dat,
     ## extract parameters
     ## sensitivity (sens) of PCR: P(PCR+ | covid+)
     ## false negative rate (fnr) of PCR: P(PCR- | covid+) = 1 - sens
-    sens <- extract(stan_sample, pars="sens")[[1]]
+    sens <- rstan::extract(stan_sample, pars="sens")[[1]]
 
     ## negative predictive value (npv) of PCR: P(covid- | PCR-)
     ## false omission rate (FOR) of PCR: P(covid+ | PCR-) = 1 - npv
-    npv <- extract(stan_sample, pars="npv")[[1]]
+    npv <- rstan::extract(stan_sample, pars="npv")[[1]]
 
     ## attack rate: P(covid+)
     ## P(covid-) = 1 - attack_rate
-    attack_rate <- extract(stan_sample, pars="attack_rate")[[1]] %>% as.vector()
+    attack_rate <- rstan::extract(stan_sample, pars="attack_rate")[[1]] %>% as.vector()
 
     plot_dat <- as_tibble(sens) %>%
         gather("days", "sens") %>%
