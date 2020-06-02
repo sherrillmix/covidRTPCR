@@ -78,23 +78,25 @@ newDat<-newDat[newDat$day<=max(pcr_dat$day),]
 dat<-rbind(pcr_dat[,c('study_idx','day','n_adj','test_pos_adj')],newDat[,c('study_idx','day','n_adj','test_pos_adj')])
 dat$dayAdjust<-dat$day-min(dat$day)+1
 
-npv_onset_model3 <- stan_model("Stan/npv-hmm.stan")
-stan_sample <- sampling(npv_onset_model3,
-                        data=list(N=nrow(dat),
-                                  J=max(dat$study_idx),
-                                  T_max=max(dat$dayAdjust),
-                                  t=dat$dayAdjust,
-                                  test_n=dat$n_adj,
-                                  test_pos=dat$test_pos_adj,
-                                  study_idx=dat$study_idx,
-                                  zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE])
-                                  ),
-                            iter=n_iter,
-                            warmup=n_warmup,
-                            control=list(adapt_delta=.98,
-                                          max_treedepth=15),
-                            chains=40
-                        )
+npv_onset_model3 <- stan_model("Stan/npv-ssm.stan")
+stanIn<-list(N=nrow(dat),
+    J=max(dat$study_idx),
+    T_max=max(dat$dayAdjust),
+    t=dat$dayAdjust,
+    test_n=dat$n_adj,
+    test_pos=dat$test_pos_adj,
+    study_idx=dat$study_idx,
+    zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE])
+)
+stan_sample <- sampling(
+  npv_onset_model3,
+  data=stanIn,
+  iter=n_iter,
+  warmup=n_warmup,
+  control=list(adapt_delta=.98,
+    max_treedepth=15),
+  chains=20
+)
 
 invLogit<-function(xx)1/(1+exp(-xx))
 sims<-as.matrix(main_analysis$stan_sample)
