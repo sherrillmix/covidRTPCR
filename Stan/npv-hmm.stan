@@ -31,28 +31,31 @@ data {
 // the beta terms are the coefficients for the cubic polynomial for log-time.
 // 'attack_rate' is the probability of infection given exposure.
 parameters{
-    real dayRate[T_max];
     real<lower=0> sigma;
     real<lower=0> daySigma;
+    real zeroDayRate;
+    real dayDiff[T_max-1];
     vector[J] beta_j;
 }
 
-// 'db_dt' is the first derivative of the log-time polynomial, which is restricted
-// to be positive for the first 4 days since exposure.
 transformed parameters{
+    real dayRate[T_max];
     vector[N] mu;
-    for(i in 1:N){
-        mu[i] = beta_j[study_idx[i]]+dayRate[t[i]];
+    dayRate[zeroDay]=zeroDayRate;
+    //loops can only go 1:N in Stan
+    for(ii in 1:(zeroDay-1))dayRate[zeroDay-ii]=dayRate[zeroDay-ii+1]+dayDiff[zeroDay-ii];
+    for(ii in (zeroDay+1):T_max)dayRate[ii]=dayRate[ii-1]+dayDiff[ii-1];
+    for(ii in 1:N){
+        mu[ii] = beta_j[study_idx[ii]]+dayRate[t[ii]];
     }
 }
 
 model {
-    test_pos ~ binomial_logit(test_n, mu);
     beta_j ~ normal(0,sigma);
-    for(ii in 1:(zeroDay-1))dayRate[ii]~normal(dayRate[ii+1],daySigma);
-    for(ii in (zeroDay+1):T_max)dayRate[ii]~normal(dayRate[ii-1],daySigma);
-    dayRate[zeroDay]~normal(0,3);
+    dayDiff~normal(0,daySigma);
+    zeroDayRate~normal(0,10);
     sigma~gamma(1,.1);
     daySigma~gamma(1,.1);
+    test_pos ~ binomial_logit(test_n, mu);
 }
 
