@@ -76,9 +76,9 @@ newDat$study_idx<-max(pcr_dat$study_idx)+as.numeric(as.factor(newDat$study))
 newDat<-newDat[newDat$day<=max(pcr_dat$day),]
 
 dat<-rbind(pcr_dat[,c('study_idx','day','n_adj','test_pos_adj')],newDat[,c('study_idx','day','n_adj','test_pos_adj')])
-dat$dayAdjust<-dat$day-min(dat$day)+1
+dat$dayAdjust<-dat$day-min(dat$day)+8
 
-npv_onset_model3 <- stan_model("Stan/npv-ssm.stan")
+npv_onset_model3 <- stan_model("Stan/npv-ssm2.stan")
 stanIn<-list(N=nrow(dat),
     J=max(dat$study_idx),
     T_max=max(dat$dayAdjust),
@@ -86,13 +86,16 @@ stanIn<-list(N=nrow(dat),
     test_n=dat$n_adj,
     test_pos=dat$test_pos_adj,
     study_idx=dat$study_idx,
-    zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE])
+    zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE]),
+    zeroMean=-8,
+    zeroSd=2
 )
 stan_sample <- sampling(
   npv_onset_model3,
   data=stanIn,
-  iter=n_iter,
-  warmup=n_warmup,
+  iter=1000,
+  #iter=n_iter,
+  #warmup=n_warmup,
   control=list(adapt_delta=.98,
     max_treedepth=15),
   chains=20
@@ -109,7 +112,7 @@ predsU<-apply(mat,2,quantile,.975)
 predsL<-apply(mat,2,quantile,.025)
 #generate HMM model predictions
 mat2<-as.matrix(stan_sample)
-predDays<-min(dat$day):max(dat$day)
+predDays<-min(dat$day-7):max(dat$day)
 predsMarkov<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,mean))
 predsMUpper<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,quantile,.975))
 predsMLower<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,quantile,.025))
@@ -131,8 +134,8 @@ newCols<-c('#e9e9ff','#9999b8')
 #prevent pdf bugginess at exact rect border meetings
 pdfFill<-.0005
 pdf('modelsCompare.pdf',width=4.5,height=4.5)
-par(mar=c(3.2,3.2,.4,3.5))
-plot(predDays,predsMarkov,xlab='Day after onset of symptoms',ylab='Probability of detection',ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(2.25,.8,0),xlim=c(-9,30))
+par(mar=c(3.2,3.2,.4,3))
+plot(predDays,predsMarkov,xlab='Day after onset of symptoms',ylab='Probability of detection',ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(2.25,.8,0),xlim=c(-15,30))
 #plot polynomial predictions
 lines(days,preds,col='red')
 polygon(c(days,rev(days)),c(predsU,rev(predsL)),col='#FF000033',border=NA)
