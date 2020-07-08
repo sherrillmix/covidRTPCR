@@ -1,4 +1,4 @@
-#  Variation in the Probability of SARS-CoV-2 Detection Using RT-qPCR Testing Prior to and After Symptom Onset
+#  Analysis of SARS-CoV-2 RT-qPCR Detection Rates Prior to and After Symptom Onset
 
 Code and data for the preprint "Variation in the Probability of SARS-CoV-2 Detection Using RT-qPCR Testing Prior to and After Symptom Onset". 
 
