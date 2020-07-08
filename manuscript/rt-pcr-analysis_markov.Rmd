@@ -83,7 +83,7 @@ dat<-rbind(pcr_dat[pcr_dat$study!='Kujawski',c('study_idx','day','n_adj','test_p
 dat$dayAdjust<-dat$day-min(dat$day)+8
 pcr_dat$dayAdjust<-pcr_dat$day-min(dat$day)+8
 
-npv_onset_model3 <- stan_model("Stan/npv-ssm2.stan")
+npv_onset_model_ssm <- stan_model("Stan/npv-ssm.stan")
 stanIn<-list(
   N=nrow(dat),
   J=max(dat$study_idx),
@@ -97,7 +97,7 @@ stanIn<-list(
   zeroSd=4
 )
 stan_sample <- sampling(
-  npv_onset_model3,
+  npv_onset_model_ssm,
   data=stanIn,
   iter=5000,
   #iter=n_iter,
@@ -119,7 +119,7 @@ stanInOld<-list(N=nrow(pcr_dat),
     zeroSd=4
 )
 stan_sample_old <- sampling(
-  npv_onset_model3,
+  npv_onset_model_ssm,
   data=stanInOld,
   iter=5000,
   #iter=n_iter,
