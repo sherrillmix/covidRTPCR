@@ -72,50 +72,62 @@ main_analysis <- make_analysis_data(stan_model=npv_onset_model,
 newDat<-read.csv('data/new-antibody-test-data.csv',stringsAsFactors=FALSE)
 newDat$n_adj<-newDat$neg+newDat$pos
 newDat$test_pos_adj<-newDat$pos
-newDat$study_idx<-max(pcr_dat$study_idx)+as.numeric(as.factor(newDat$study))
+newDat$study_idx<-NA
+newDat$study_idx[newDat$study!='COVID']<-max(pcr_dat$study_idx)+as.numeric(as.factor(newDat$study[newDat$study!='COVID']))
+newDat$study_idx[newDat$study=='COVID']<-pcr_dat[pcr_dat$study=='Kujawski','study_idx'][[1]][1]
 newDat<-newDat[newDat$day<=max(pcr_dat$day),]
+sum(newDat$n_adj[newDat$study_idx>max(pcr_dat$study_idx)])
 
-dat<-rbind(pcr_dat[,c('study_idx','day','n_adj','test_pos_adj')],newDat[,c('study_idx','day','n_adj','test_pos_adj')])
+
+dat<-rbind(pcr_dat[pcr_dat$study!='Kujawski',c('study_idx','day','n_adj','test_pos_adj')],newDat[,c('study_idx','day','n_adj','test_pos_adj')])
 dat$dayAdjust<-dat$day-min(dat$day)+8
+pcr_dat$dayAdjust<-pcr_dat$day-min(dat$day)+8
 
 npv_onset_model3 <- stan_model("Stan/npv-ssm2.stan")
-stanIn<-list(N=nrow(dat),
-    J=max(dat$study_idx),
-    T_max=max(dat$dayAdjust),
-    t=dat$dayAdjust,
-    test_n=dat$n_adj,
-    test_pos=dat$test_pos_adj,
-    study_idx=dat$study_idx,
-    zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE]),
-    zeroMean=-8,
-    zeroSd=2
+stanIn<-list(
+  N=nrow(dat),
+  J=max(dat$study_idx),
+  T_max=max(dat$dayAdjust),
+  t=dat$dayAdjust,
+  test_n=dat$n_adj,
+  test_pos=dat$test_pos_adj,
+  study_idx=dat$study_idx,
+  zeroDay=unique(dat[dat$day==0,'dayAdjust',drop=TRUE]),
+  zeroMean=-8,
+  zeroSd=4
 )
 stan_sample <- sampling(
   npv_onset_model3,
   data=stanIn,
-  iter=1000,
+  iter=5000,
   #iter=n_iter,
   #warmup=n_warmup,
-  control=list(adapt_delta=.98,
-    max_treedepth=15),
-  chains=20
+  chains=20,
+  control=list(adapt_delta=p_adapt_delta, max_treedepth=n_max_treedepth)
 )
 
-invLogit<-function(xx)1/(1+exp(-xx))
-sims<-as.matrix(main_analysis$stan_sample)
-days<-min(pcr_dat$day):max(pcr_dat$day)#sort(unique(pcr_dat$day))
-dayP<-predict(day_poly,log(days+5)) #do.call(rbind,lapply(days,function(xx)day_poly[which(pcr_dat$day==xx)[1],]))
-#generate polynomial model predictions
-mat<-invLogit(sims[,'beta_0']+sims[,c('beta_1','beta_2','beta_3')] %*% t(dayP[,1:3]))
-preds<-apply(mat,2,mean)
-predsU<-apply(mat,2,quantile,.975)
-predsL<-apply(mat,2,quantile,.025)
-#generate HMM model predictions
-mat2<-as.matrix(stan_sample)
-predDays<-min(dat$day-7):max(dat$day)
-predsMarkov<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,mean))
-predsMUpper<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,quantile,.975))
-predsMLower<-invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,quantile,.025))
+
+stanInOld<-list(N=nrow(pcr_dat),
+    J=max(pcr_dat$study_idx),
+    T_max=max(dat$dayAdjust),
+    t=pcr_dat$dayAdjust,
+    test_n=pcr_dat$n_adj,
+    test_pos=pcr_dat$test_pos_adj,
+    study_idx=pcr_dat$study_idx,
+    zeroDay=unique(pcr_dat[pcr_dat$day==0,'dayAdjust',drop=TRUE]),
+    zeroMean=-8,
+    zeroSd=4
+)
+stan_sample_old <- sampling(
+  npv_onset_model3,
+  data=stanInOld,
+  iter=5000,
+  #iter=n_iter,
+  #warmup=n_warmup,
+  chains=20,
+  control=list(adapt_delta=p_adapt_delta, max_treedepth=n_max_treedepth)
+)
+
 #count up the old data
 tests<-data.frame('pos'=tapply(pcr_dat$test_pos,pcr_dat$day,sum),'n'=tapply(pcr_dat$n,pcr_dat$day,sum))
 tests$day<-as.numeric(rownames(tests))
@@ -128,34 +140,96 @@ newTests$origN<-tests[as.character(newTests$day),'n']
 newTests[is.na(newTests$origPos),'origPos']<-0
 newTests[is.na(newTests$origN),'origN']<-0
 newTests$origNeg<-newTests$origN-newTests$origPos
+predDays<-min(dat$day-7):max(dat$day)
+
+
+meanCrI<-function(xx)c(mean(xx,na.rm=TRUE),quantile(xx,c(.025,.975),na.rm=TRUE))
+invLogit<-function(xx)1/(1+exp(-xx))
+sims<-as.matrix(main_analysis$stan_sample)
+days<-min(pcr_dat$day):max(pcr_dat$day)#sort(unique(pcr_dat$day))
+dayP<-predict(day_poly,log(days+5)) #do.call(rbind,lapply(days,function(xx)day_poly[which(pcr_dat$day==xx)[1],]))
+#generate polynomial model predictions
+mat<-invLogit(sims[,'beta_0']+sims[,c('beta_1','beta_2','beta_3')] %*% t(dayP[,1:3]))
+preds<-t(apply(mat,2,meanCrI))
+#generate HMM model predictions
+mat2<-as.matrix(stan_sample)
+predsMarkov<-t(invLogit(apply(mat2[,grep('dayRate',colnames(mat2))],2,meanCrI)))
+predsMarkov_13<-t(invLogit(apply(mat2[,grep('dayRate',colnames(mat2))]+mat2[,'beta_j[13]'],2,meanCrI)))
+mat3<-as.matrix(stan_sample_old)
+predsMarkov_old<-t(invLogit(apply(mat3[,grep('dayRate',colnames(mat3))],2,meanCrI)))
 # generate plot
-origCols<-c('#ffe9e9','#b89999')
-newCols<-c('#e9e9ff','#9999b8')
-#prevent pdf bugginess at exact rect border meetings
-pdfFill<-.0005
-pdf('modelsCompare.pdf',width=4.5,height=4.5)
+plotPreds<-function(days1,days2,preds1,preds2,cols1=c('#FF0000','#FF000033'),cols2=c('#0000FF','#0000FF33'),addZero=TRUE){
+  plot(days2,preds2[,1],xlab='Day after onset of symptoms',ylab='Probability of detection',ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(2.25,.8,0),xlim=c(-12,30))
+  #plot polynomial predictions
+  if(!is.null(preds1))polygon(c(days1,rev(days1)),c(preds1[,2],rev(preds1[,3])),col=cols1[2],border=NA)
+  #plot HMM predictions
+  if(!is.null(preds2))polygon(c(days2,rev(days2)),c(preds2[,2],rev(preds2[,3])),col=cols2[2],border=NA)
+  if(!is.null(preds2))lines(days2,preds2[,1],col=cols2[1])
+  if(!is.null(preds1))lines(days1,preds1[,1],col=cols1[1])
+  if(addZero)abline(v=-.5,lty=2)
+}
+addRects<-function(newTests,height=.4,yMax=max(newTests$n)){
+  origCols<-c('#EEEEEE','#AAAAAA')
+  #newCols<-c('#e9e9ff','#9999b8')
+  newCols<-c('#ffe9e9','#b89999')
+  #prevent pdf bugginess at exact rect border meetings
+  pdfFill<-.0005
+  #plot raw data
+  rectHeight<-diff(par('usr')[3:4])*height
+  rectMin<-par('usr')[3]
+  perTest<-rectHeight/yMax
+  rect(newTests$day-.4,rectMin+newTests$origPos*perTest+pdfFill,newTests$day+.4,rectMin,col=origCols[2],border=NA)
+  rect(newTests$day-.4,rectMin+(newTests$origNeg+newTests$pos)*perTest+pdfFill,newTests$day+.4,rectMin+newTests$pos*perTest,col=origCols[1],border=NA)
+  rect(newTests$day-.4,rectMin+newTests$pos*perTest+pdfFill,newTests$day+.4,rectMin+newTests$origPos*perTest,col=newCols[2],border=NA)
+  rect(newTests$day-.4,rectMin+newTests$n*perTest+pdfFill,newTests$day+.4,rectMin+(newTests$origNeg+newTests$pos)*perTest,col=newCols[1],border=NA)
+  rect(newTests$day-.4,rectMin,newTests$day+.4,rectMin+newTests$n*perTest,col=NA,border='#00000088')
+  segments(newTests$day-.4,rectMin+newTests$pos*perTest,newTests$day+.4,rectMin+newTests$pos*perTest,col='#00000088',lwd=.5)
+  axPos<-pretty(1:max(tests$n))
+  axis(4,rectMin+axPos*perTest,as.character(axPos),las=1,mgp=c(2.5,.8,0))
+  text(39,50*perTest+rectMin,'Number of tests',xpd=NA,srt=270,mgp=c(2.25,.8,0))
+}
+propCI<-function(xx)if(xx[2]==0) as.numeric(c(NA,NA,NA)) else c(xx[1]/xx[2],suppressWarnings(prop.test(xx[1],xx[2])$conf.int))
+addRects2<-function(newTests,height=1){
+  props<-t(apply(newTests[,c('pos','n')],1,propCI))
+  rectHeight<-diff(par('usr')[3:4])*height
+  rectMin<-par('usr')[3]
+  rect(newTests$day-.4,rectMin+props[,1]*rectHeight,newTests$day+.4,rectMin,col='#00000022')
+  #segments(newTests$day-.4,rectMin+props[,1]*rectHeight,newTests$day+.4,rectMin+props[,1]*rectHeight,lwd=2)
+  segments(newTests$day,rectMin+props[,2]*rectHeight ,newTests$day,rectMin+props[,3]*rectHeight,col='#00000088',lwd=1)
+}
+pdf('modelsCompare.pdf',width=8,height=4.5)
 par(mar=c(3.2,3.2,.4,3))
-plot(predDays,predsMarkov,xlab='Day after onset of symptoms',ylab='Probability of detection',ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(2.25,.8,0),xlim=c(-15,30))
-#plot polynomial predictions
-lines(days,preds,col='red')
-polygon(c(days,rev(days)),c(predsU,rev(predsL)),col='#FF000033',border=NA)
-#plot HMM predictions
-lines(predDays,predsMarkov,col='blue')
-polygon(c(predDays,rev(predDays)),c(predsMUpper,rev(predsMLower)),col='#0000FF33',border=NA)
-abline(v=-.5,lty=2)
-#plot raw data
-rectHeight<-diff(par('usr')[3:4])*.35
-rectMin<-par('usr')[3]
-perTest<-rectHeight/max(newTests$n)
-rect(newTests$day-.4,rectMin+newTests$origPos*perTest+pdfFill,newTests$day+.4,rectMin,col=origCols[2],border=NA)
-rect(newTests$day-.4,rectMin+(newTests$origNeg+newTests$pos)*perTest+pdfFill,newTests$day+.4,rectMin+newTests$pos*perTest,col=origCols[1],border=NA)
-rect(newTests$day-.4,rectMin+newTests$pos*perTest+pdfFill,newTests$day+.4,rectMin+newTests$origPos*perTest,col=newCols[2],border=NA)
-rect(newTests$day-.4,rectMin+newTests$n*perTest+pdfFill,newTests$day+.4,rectMin+(newTests$origNeg+newTests$pos)*perTest,col=newCols[1],border=NA)
-rect(newTests$day-.4,rectMin,newTests$day+.4,rectMin+newTests$n*perTest,col=NA,border='#00000088')
-segments(newTests$day-.4,rectMin+newTests$pos*perTest,newTests$day+.4,rectMin+newTests$pos*perTest,col='#00000088',lwd=.5)
-axPos<-pretty(1:max(tests$n))
-axis(4,rectMin+axPos*perTest,as.character(axPos),las=1,mgp=c(2.5,.8,0))
-text(39,50*perTest+rectMin,'Number of tests',xpd=NA,srt=270,mgp=c(2.25,.8,0))
+#compare new data ARMA vs old ARMA
+plotPreds(predDays,predDays,predsMarkov,predsMarkov_old)
+addRects(newTests)
+#show new data and ARMA 
+plotPreds(predDays,predDays,predsMarkov,NULL)
+addRects(newTests)
+#show new data
+plotPreds(predDays,predDays,NULL,NULL)
+addRects(newTests)
+tmp<-newTests
+tmp$pos<-tmp$origPos
+tmp$neg<-tmp$origNeg
+tmp$n<-tmp$pos+tmp$neg
+#show old data polynomial vs ARMA
+plotPreds(days,predDays,preds,predsMarkov_old,cols1=c('#000000','#00000033'))
+addRects(tmp,yMax=max(newTests$n))
+#show old data ARMA
+plotPreds(days,predDays,preds,NULL,cols1=c('#000000','#00000033'))
+addRects(tmp,yMax=max(newTests$n))
+#show old data 
+plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
+addRects(tmp,yMax=max(newTests$n))
+#show old data and polynomial
+plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
+addRects(newTests)
+#show probabilities and their 95% CI in old data
+plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
+addRects2(tmp)
+#show probabilities and their 95% CI in new data
+plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
+addRects2(newTests)
 dev.off()
 
 ```

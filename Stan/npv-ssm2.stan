@@ -36,28 +36,27 @@ parameters{
     real<lower=0> sigma;
     real<lower=0> daySigma;
     real zeroDayRate;
-    real dayDiff[T_max-1];
+    real rawDayDiff[T_max-1];
     vector[J] beta_j;
 }
 
 transformed parameters{
-    real dayRate[T_max];
+    vector[T_max] dayRate;
     vector[N] mu;
+    vector[T_max-1] dayDiff;
     dayRate[1]=zeroDayRate;
-    //loops can only go 1:N in Stan
-    for(ii in 2:T_max)dayRate[ii]=dayRate[ii-1]+dayDiff[ii-1];
-    for(ii in 1:N){
-        mu[ii] = beta_j[study_idx[ii]]+dayRate[t[ii]];
-    }
+    dayDiff[1]=rawDayDiff[1]*daySigma;
+    for(ii in 2:(T_max-1)) dayDiff[ii]=dayDiff[ii-1]+rawDayDiff[ii]*daySigma;
+    for(ii in 2:T_max) dayRate[ii]=dayRate[ii-1]+dayDiff[ii-1];
+    mu = beta_j[study_idx]+dayRate[t];
 }
 
 model {
     beta_j ~ normal(0,sigma);
-    for(ii in 1:(T_max-1))dayDiff[ii]~normal(0,daySigma);
-    //for(ii in 1:(T_max-1))dayDiff[ii]~normal(0,ii<zeroDay ? daySigma[1] + daySigma[2] : daySigma[1]);
+    rawDayDiff~normal(0,1);
     zeroDayRate~normal(zeroMean,zeroSd);
     sigma~gamma(1,1);
-    daySigma~gamma(1,.1);
+    daySigma~gamma(1,1);
     test_pos ~ binomial_logit(test_n, mu);
 }
 
