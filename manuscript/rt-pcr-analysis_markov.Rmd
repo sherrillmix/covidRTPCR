@@ -158,17 +158,16 @@ predsMarkov_13<-t(invLogit(apply(mat2[,grep('dayRate',colnames(mat2))]+mat2[,'be
 mat3<-as.matrix(stan_sample_old)
 predsMarkov_old<-t(invLogit(apply(mat3[,grep('dayRate',colnames(mat3))],2,meanCrI)))
 # generate plot
-plotPreds<-function(days1,days2,preds1,preds2,cols1=c('#FF0000','#FF000033'),cols2=c('#0000FF','#0000FF33'),addZero=TRUE){
-  plot(days2,preds2[,1],xlab='Day after onset of symptoms',ylab='Probability of detection',ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(2.25,.8,0),xlim=c(-12,30))
-  #plot polynomial predictions
+plotPreds<-function(days1,days2,preds1,preds2,cols1=c('#FF0000','#FF000033'),cols2=c('#0000FF','#0000FF33'),addZero=TRUE,...,ylab='Probability of detection',xlab='Days after onset of symptoms'){
+  plot(days2,preds2[,1],xlab='',ylab=ylab,ylim=c(0,1),type='n',yaxs='i',las=1,mgp=c(1.9,.5,0),xlim=c(-13.5,30.5),tcl=-.3,...,xaxs='i',xpd=NA)
+  title(xlab=xlab,mgp=c(1.5,.5,0),xpd=NA)
   if(!is.null(preds1))polygon(c(days1,rev(days1)),c(preds1[,2],rev(preds1[,3])),col=cols1[2],border=NA)
-  #plot HMM predictions
   if(!is.null(preds2))polygon(c(days2,rev(days2)),c(preds2[,2],rev(preds2[,3])),col=cols2[2],border=NA)
   if(!is.null(preds2))lines(days2,preds2[,1],col=cols2[1])
   if(!is.null(preds1))lines(days1,preds1[,1],col=cols1[1])
   if(addZero)abline(v=-.5,lty=2)
 }
-addRects<-function(newTests,height=.4,yMax=max(newTests$n)){
+addRects<-function(newTests,height=.4,yMax=max(newTests$n),yAxis=TRUE){
   origCols<-c('#EEEEEE','#AAAAAA')
   #newCols<-c('#e9e9ff','#9999b8')
   newCols<-c('#ffe9e9','#b89999')
@@ -182,11 +181,15 @@ addRects<-function(newTests,height=.4,yMax=max(newTests$n)){
   rect(newTests$day-.4,rectMin+(newTests$origNeg+newTests$pos)*perTest+pdfFill,newTests$day+.4,rectMin+newTests$pos*perTest,col=origCols[1],border=NA)
   rect(newTests$day-.4,rectMin+newTests$pos*perTest+pdfFill,newTests$day+.4,rectMin+newTests$origPos*perTest,col=newCols[2],border=NA)
   rect(newTests$day-.4,rectMin+newTests$n*perTest+pdfFill,newTests$day+.4,rectMin+(newTests$origNeg+newTests$pos)*perTest,col=newCols[1],border=NA)
-  rect(newTests$day-.4,rectMin,newTests$day+.4,rectMin+newTests$n*perTest,col=NA,border='#00000088')
-  segments(newTests$day-.4,rectMin+newTests$pos*perTest,newTests$day+.4,rectMin+newTests$pos*perTest,col='#00000088',lwd=.5)
-  axPos<-pretty(1:max(tests$n))
-  axis(4,rectMin+axPos*perTest,as.character(axPos),las=1,mgp=c(2.5,.8,0))
-  text(39,50*perTest+rectMin,'Number of tests',xpd=NA,srt=270,mgp=c(2.25,.8,0))
+  rect(newTests$day-.4,rectMin,newTests$day+.4,rectMin+newTests$n*perTest,col=NA,border='#888888')
+  #segments(newTests$day-.4,rectMin+newTests$pos*perTest,newTests$day+.4,rectMin+newTests$pos*perTest,col=ifelse(newTests$pos!=newTests$n,'#00000088',NA),lwd=.3)
+  segments(newTests$day-.4,(rectMin+newTests$pos+newTests$origNeg)*perTest,newTests$day+.4,(rectMin+newTests$pos+newTests$origNeg)*perTest,col=ifelse(newTests$origNeg>0,'#00000018',NA),lwd=.5)
+  #segments(newTests$day-.4,(rectMin+newTests$origPos)*perTest,newTests$day+.4,(rectMin+newTests$origPos)*perTest,col=ifelse(newTests$origPos>0,'#00000033',NA),lwd=.5)
+  if(yAxis){
+    axPos<-pretty(1:max(tests$n))
+    axis(4,rectMin+axPos*perTest,as.character(axPos),las=1,mgp=c(2.5,.5,0),tcl=-.3)
+    text(grconvertX(.994,'nfc','user'),50*perTest+rectMin,'Number of tests',xpd=NA,srt=270,mgp=c(2.25,.8,0),adj=c(.5,1))
+  }
 }
 propCI<-function(xx)if(xx[2]==0) as.numeric(c(NA,NA,NA)) else c(xx[1]/xx[2],suppressWarnings(prop.test(xx[1],xx[2])$conf.int))
 addRects2<-function(newTests,height=1){
@@ -198,39 +201,58 @@ addRects2<-function(newTests,height=1){
   segments(newTests$day,rectMin+props[,2]*rectHeight ,newTests$day,rectMin+props[,3]*rectHeight,col='#00000088',lwd=1)
 }
 pdf('modelsCompare.pdf',width=8,height=4.5)
-par(mar=c(3.2,3.2,.4,3))
-#compare new data ARMA vs old ARMA
-plotPreds(predDays,predDays,predsMarkov,predsMarkov_old)
-addRects(newTests)
-#show new data and ARMA 
-plotPreds(predDays,predDays,predsMarkov,NULL)
-addRects(newTests)
-#show new data
-plotPreds(predDays,predDays,NULL,NULL)
-addRects(newTests)
-tmp<-newTests
-tmp$pos<-tmp$origPos
-tmp$neg<-tmp$origNeg
-tmp$n<-tmp$pos+tmp$neg
-#show old data polynomial vs ARMA
-plotPreds(days,predDays,preds,predsMarkov_old,cols1=c('#000000','#00000033'))
-addRects(tmp,yMax=max(newTests$n))
-#show old data ARMA
-plotPreds(days,predDays,preds,NULL,cols1=c('#000000','#00000033'))
-addRects(tmp,yMax=max(newTests$n))
-#show old data 
-plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
-addRects(tmp,yMax=max(newTests$n))
-#show old data and polynomial
-plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
-addRects(newTests)
-#show probabilities and their 95% CI in old data
-plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
-addRects2(tmp)
-#show probabilities and their 95% CI in new data
-plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
-addRects2(newTests)
+  par(mar=c(3.2,3.1,.4,3))
+  #compare new data ARMA vs old ARMA
+  plotPreds(predDays,predDays,predsMarkov,predsMarkov_old)
+  addRects(newTests)
+  #show new data and ARMA 
+  plotPreds(predDays,predDays,predsMarkov,NULL)
+  addRects(newTests)
+  #show new data
+  plotPreds(predDays,predDays,NULL,NULL)
+  addRects(newTests)
+  tmp<-newTests
+  tmp$pos<-tmp$origPos
+  tmp$neg<-tmp$origNeg
+  tmp$n<-tmp$pos+tmp$neg
+  #show old data polynomial vs ARMA
+  plotPreds(days,predDays,preds,predsMarkov_old,cols1=c('#000000','#00000033'))
+  addRects(tmp,yMax=max(newTests$n))
+  #show old data ARMA
+  plotPreds(days,predDays,preds,NULL,cols1=c('#000000','#00000033'))
+  addRects(tmp,yMax=max(newTests$n))
+  #show old data 
+  plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
+  addRects(tmp,yMax=max(newTests$n))
+  #show old data and polynomial
+  plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'))
+  addRects(newTests)
+  #show probabilities and their 95% CI in old data
+  plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
+  addRects2(tmp)
+  #show probabilities and their 95% CI in new data
+  plotPreds(days,predDays,NULL,NULL,cols1=c('#000000','#00000033'),addZero=FALSE)
+  addRects2(newTests)
 dev.off()
+pdf('Figure1.pdf',width=4.7,height=4)
+  par(mar=c(0,3,0,3))
+  layout(matrix(c(0,1,0,2,0),ncol=1),height=c(.03,1,.13,1,.2))
+  tmp<-newTests
+  tmp$pos<-tmp$origPos
+  tmp$neg<-tmp$origNeg
+  tmp$n<-tmp$pos+tmp$neg
+  #show old data polynomial vs ARMA
+  plotPreds(days,predDays,preds,predsMarkov_old,cols1=c('#000000','#00000022'),cols2=c('#0000FF','#0000FF28'),xlab='')
+  addRects(tmp,yMax=max(newTests$n),height=.43)#,yAxis=FALSE)
+  box()
+  text(grconvertX(.0001,from='ndc'),grconvertY(.998,from='ndc'),'A',xpd=NA,adj=c(0,1),cex=2)
+  #compare new data ARMA vs old ARMA
+  plotPreds(predDays,predDays,predsMarkov,predsMarkov_old,cols2=c('#0000FF','#0000FF20'))#,yaxt='n',ylab='',)
+  addRects(newTests,height=.43)
+  text(grconvertX(.0001,from='ndc'),grconvertY(1.04,from='nfc'),'B',xpd=NA,adj=c(0,1),cex=2)
+  box()
+dev.off()
+
 
 ```
 
